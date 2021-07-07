@@ -54,7 +54,6 @@ export class DemoSharedBackgroundHttp extends DemoSharedBase {
 			},
 			description: description,
 			androidAutoDeleteAfterUpload: false,
-			androidNotificationTitle: 'NativeScript HTTP background',
 		};
 
 		if (should_fail) {

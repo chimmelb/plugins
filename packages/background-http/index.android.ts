@@ -1,4 +1,4 @@
-import { Observable, Application, knownFolders } from "@nativescript/core";
+import { Observable, Application, knownFolders, Utils } from "@nativescript/core";
 import * as common from "./index";
 
 type Context = android.content.Context;
@@ -94,7 +94,7 @@ function initializeProgressReceiver() {
     const zonedOnCompleted = global.zonedCallback(onProgressReceiverCompleted);
 
 
-    const ProgressReceiverImpl = new net.gotev.uploadservice.observer.request.GlobalRequestObserver(Application.android.context, new net.gotev.uploadservice.observer.request.RequestObserverDelegate({
+    const ProgressReceiverImpl = new net.gotev.uploadservice.observer.request.GlobalRequestObserver(Utils.android.getApplication(), new net.gotev.uploadservice.observer.request.RequestObserverDelegate({
         onProgress: function (context: Context, uploadInfo: UploadInfo) {
             zonedOnProgress(context, uploadInfo);
         },

@@ -173,18 +173,6 @@ export interface Request {
     utf8?: boolean;
 
     /*
-     * Use this to set if progress notification should be displayed or not.
-     * Please note that since API26, Android requires developers to use notifications
-     * when running background tasks. https://developer.android.com/about/versions/oreo/background
-     */
-    androidDisplayNotificationProgress?: boolean;
-
-    /*
-     * Use this to set the title shown in the Android notifications center.
-     */
-    androidNotificationTitle?: string;
-
-    /*
      * Use this to set if files should be deleted automatically after upload
      */
     androidAutoDeleteAfterUpload?: boolean;
@@ -194,19 +182,4 @@ export interface Request {
     * https://github.com/gotev/android-upload-service/wiki/Recipes#backoff
     */
     androidMaxRetries?: number;
-
-    /*
-     * Use this to set if notifications should be cleared automatically upon upload completion
-     */
-    androidAutoClearNotification?: boolean;
-
-    /*
-     * Use this to set if a ringtone should be played upon upload completion
-     */
-    androidRingToneEnabled?: boolean;
-
-    /*
-     * Use this to set the channel ID for the notifications
-     */
-    androidNotificationChannelID?: string;
 }
