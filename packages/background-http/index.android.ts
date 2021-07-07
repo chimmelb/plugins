@@ -2,14 +2,14 @@ import { Observable, Application, knownFolders } from "@nativescript/core";
 import * as common from "./index";
 
 type Context = android.content.Context;
-type ServerResponse = net.gotev.uploadservice.ServerResponse;
-type UploadInfo = net.gotev.uploadservice.UploadInfo;
-type UploadServiceBroadcastReceiver = net.gotev.uploadservice.UploadServiceBroadcastReceiver;
+type ServerResponse = net.gotev.uploadservice.network.ServerResponse;
+type UploadInfo = net.gotev.uploadservice.data.UploadInfo;
+type RequestObserver = net.gotev.uploadservice.observer.request.RequestObserver;
 
 /* A snapshot-friendly, lazy-loaded class for ProgressReceiver BEGIN */
 let ProgressReceiver: any;
 
-function onProgressReceiverProgress(context: Context, uploadInfo: UploadInfo) {
+function onProgressReceiverProgress(context: Context, uploadInfo: net.gotev.uploadservice.data.UploadInfo) {
     const uploadId = uploadInfo.getUploadId();
     const task = Task.fromId(uploadId);
     const totalBytes = uploadInfo.getTotalBytes();
@@ -32,17 +32,24 @@ function onProgressReceiverCancelled(context: Context, uploadInfo: UploadInfo) {
     task.notify({ eventName: "cancelled", object: task });
 }
 
-function onProgressReceiverError(context: Context, uploadInfo: UploadInfo, response: ServerResponse, error: java.lang.Exception) {
+function onProgressReceiverError(context: Context, uploadInfo: UploadInfo, error: java.lang.Throwable) {
     const uploadId = uploadInfo.getUploadId();
     const task = Task.fromId(uploadId);
     task.setStatus("error");
-    task.notify(<common.ErrorEventData>{
-        eventName: "error",
-        object: task,
-        error,
-        responseCode: response && typeof response.getHttpCode === 'function' ? response.getHttpCode() : -1,
-        response
-    });
+    if (error instanceof net.gotev.uploadservice.exceptions.UserCancelledUploadException) {
+        task.notify({ eventName: "cancelled", object: task })
+    } else if (error instanceof net.gotev.uploadservice.exceptions.UploadError) {
+        task.notify(<common.ErrorEventData>{
+            eventName: "error",
+            object: task,
+            error: new java.lang.Exception(error),
+            responseCode: -1,
+            response: error.getServerResponse()
+        });
+    } else {
+        task.notify({ eventName: "error", object: task });
+    }
+
 }
 
 function onProgressReceiverCompleted(context: Context, uploadInfo: UploadInfo, response: ServerResponse) {
@@ -66,13 +73,13 @@ function onProgressReceiverCompleted(context: Context, uploadInfo: UploadInfo, r
     task.notify(<common.ResultEventData>{
         eventName: "responded",
         object: task,
-        data: response.getBodyAsString(),
-        responseCode: response && typeof response.getHttpCode === 'function' ? response.getHttpCode() : -1
+        data: response.getBodyString(),
+        responseCode: response && typeof response.getCode === 'function' ? response.getCode() : -1
     });
     task.notify(<common.CompleteEventData>{
         eventName: "complete",
         object: task,
-        responseCode: response && typeof response.getHttpCode === 'function' ? response.getHttpCode() : -1,
+        responseCode: response && typeof response.getCode === 'function' ? response.getCode() : -1,
         response
     });
 }
@@ -81,43 +88,31 @@ function initializeProgressReceiver() {
     if (ProgressReceiver) {
         return;
     }
-
     const zonedOnProgress = global.zonedCallback(onProgressReceiverProgress);
     const zonedOnCancelled = global.zonedCallback(onProgressReceiverCancelled);
     const zonedOnError = global.zonedCallback(onProgressReceiverError);
     const zonedOnCompleted = global.zonedCallback(onProgressReceiverCompleted);
 
-    const temp: Partial<UploadServiceBroadcastReceiver> = {
-        onProgress(context: Context, uploadInfo: UploadInfo) {
+
+    const ProgressReceiverImpl = new net.gotev.uploadservice.observer.request.GlobalRequestObserver(Application.android.context, new net.gotev.uploadservice.observer.request.RequestObserverDelegate({
+        onProgress: function (context: Context, uploadInfo: UploadInfo) {
             zonedOnProgress(context, uploadInfo);
         },
-
-        onCancelled(context: Context, uploadInfo: UploadInfo) {
-            zonedOnCancelled(context, uploadInfo);
+        onError: function (context: Context, uploadInfo: UploadInfo, error: java.lang.Throwable) {
+            zonedOnError(context, uploadInfo, error);
         },
-
-        onError(context: Context, uploadInfo: UploadInfo, response: ServerResponse, error: java.lang.Exception) {
-            zonedOnError(context, uploadInfo, response, error);
-        },
-
-        onCompleted(context: Context, uploadInfo: UploadInfo, serverResponse: ServerResponse) {
+        onSuccess: function (context: Context, uploadInfo: UploadInfo, serverResponse: ServerResponse) {
             zonedOnCompleted(context, uploadInfo, serverResponse);
+        },
+        onCompleted: function (context: Context, uploadInfo: UploadInfo) {
+            zonedOnProgress(context, uploadInfo);
+        },
+        onCompletedWhileNotObserving: function () {
         }
-    };
-
-    const ProgressReceiverImpl = (<any>net.gotev.uploadservice.UploadServiceBroadcastReceiver).extend(temp);
-
+    }))
     ProgressReceiver = ProgressReceiverImpl as any;
 }
 /* ProgressReceiver END */
-
-let hasNamespace = false;
-function ensureUploadServiceNamespace() {
-    if (!hasNamespace) {
-        net.gotev.uploadservice.UploadService.NAMESPACE = Application.android.packageName;
-        hasNamespace = true;
-    }
-}
 
 let receiver: any;
 function ensureReceiver() {
@@ -128,7 +123,13 @@ function ensureReceiver() {
         receiver.register(context);
     }
 }
-
+let hasNamespace = false;
+function ensureUploadServiceNamespace() {
+    if (!hasNamespace) {
+        net.gotev.uploadservice.UploadService.NAMESPACE = Application.android.packageName;
+        hasNamespace = true;
+    }
+}
 export function session(id: string) {
     // TODO: Cache.
     return new Session(id);
@@ -173,7 +174,7 @@ class Task extends ObservableBase {
     private _description: string;
 
     static create(session: Session, file: string, options: common.Request): Task {
-        ensureUploadServiceNamespace();
+        ensureUploadServiceNamespace()
         ensureReceiver();
         const taskId = session.id + "{" + ++Task.taskCount + "}";
         const request = getBinaryRequest(taskId, options, file);
@@ -187,7 +188,7 @@ class Task extends ObservableBase {
     }
 
     static createMultiPart(session: Session, params: Array<any>, options: common.Request): Task {
-        ensureUploadServiceNamespace();
+        ensureUploadServiceNamespace()
         ensureReceiver();
         const taskId = session.id + "{" + ++Task.taskCount + "}";
         const request = getMultipartRequest(taskId, options, params);
@@ -260,7 +261,7 @@ class Task extends ObservableBase {
 }
 
 function getBinaryRequest(taskId: string, options: common.Request, file: string) {
-    const request = new net.gotev.uploadservice.BinaryUploadRequest(Application.android.context, taskId, options.url);
+    const request = new net.gotev.uploadservice.protocols.binary.BinaryUploadRequest(Application.android.context, options.url);
 
     request.setFileToUpload(file);
     setRequestOptions(request, options);
@@ -269,7 +270,7 @@ function getBinaryRequest(taskId: string, options: common.Request, file: string)
 }
 
 function getMultipartRequest(taskId: string, options: common.Request, params: any[]) {
-    const request = new net.gotev.uploadservice.MultipartUploadRequest(Application.android.context, taskId, options.url);
+    const request = new net.gotev.uploadservice.protocols.multipart.MultipartUploadRequest(Application.android.context, options.url);
 
     for (let i = 0; i < params.length; i++) {
         const curParam = params[i];
@@ -290,41 +291,13 @@ function getMultipartRequest(taskId: string, options: common.Request, params: an
         request.addFileToUpload(fileName, curParam.name, destFileName, curParam.mimeType);
     }
 
-    const utf8 = options.utf8;
-
-    if (utf8) {
-        request.setUtf8Charset();
-    }
+    // utf8 is default charset in v4
     setRequestOptions(request, options);
 
     return request;
 }
 
 function setRequestOptions(request: any, options: common.Request) {
-    const displayNotificationProgress = typeof options.androidDisplayNotificationProgress === "boolean" ? options.androidDisplayNotificationProgress : true;
-
-    if (displayNotificationProgress) {
-        const uploadNotificationConfig = new net.gotev.uploadservice.UploadNotificationConfig();
-        const notificationTitle = typeof options.androidNotificationTitle === "string" ? options.androidNotificationTitle : 'File Upload';
-
-        uploadNotificationConfig.setTitleForAllStatuses(notificationTitle);
-
-        if (typeof options.androidRingToneEnabled === "boolean") {
-            uploadNotificationConfig.setRingToneEnabled(new java.lang.Boolean(options.androidRingToneEnabled));
-        }
-
-        if (typeof options.androidAutoClearNotification === "boolean") {
-            uploadNotificationConfig.getCompleted().autoClear = options.androidAutoClearNotification;
-            uploadNotificationConfig.getCancelled().autoClear = options.androidAutoClearNotification;
-            uploadNotificationConfig.getError().autoClear = options.androidAutoClearNotification;
-        }
-
-        if (typeof options.androidNotificationChannelID === "string" && options.androidNotificationChannelID) {
-            uploadNotificationConfig.setNotificationChannelId(options.androidNotificationChannelID);
-        }
-
-        request.setNotificationConfig(uploadNotificationConfig);
-    }
     const autoDeleteAfterUpload = typeof options.androidAutoDeleteAfterUpload === "boolean" ? options.androidAutoDeleteAfterUpload : false;
     if (autoDeleteAfterUpload) {
         request.setAutoDeleteFilesAfterSuccessfulUpload(true);
