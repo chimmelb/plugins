@@ -14,6 +14,7 @@ function onProgressReceiverProgress(context: Context, uploadInfo: net.gotev.uplo
     const task = Task.fromId(uploadId);
     const totalBytes = uploadInfo.getTotalBytes();
     const currentBytes = uploadInfo.getUploadedBytes();
+    
     task.setTotalUpload(totalBytes);
     task.setUpload(currentBytes);
     task.setStatus("uploading");
@@ -93,7 +94,6 @@ function initializeProgressReceiver() {
     const zonedOnError = global.zonedCallback(onProgressReceiverError);
     const zonedOnCompleted = global.zonedCallback(onProgressReceiverCompleted);
 
-
     const ProgressReceiverImpl = new net.gotev.uploadservice.observer.request.GlobalRequestObserver(Utils.android.getApplication(), new net.gotev.uploadservice.observer.request.RequestObserverDelegate({
         onProgress: function (context: Context, uploadInfo: UploadInfo) {
             zonedOnProgress(context, uploadInfo);
@@ -114,19 +114,17 @@ function initializeProgressReceiver() {
 }
 /* ProgressReceiver END */
 
-let receiver: any;
 function ensureReceiver() {
-    if (!receiver) {
+    if (!ProgressReceiver) {
         const context = Application.android.context;
         initializeProgressReceiver();
-        receiver = new ProgressReceiver();
-        receiver.register(context);
+        ProgressReceiver.register();
     }
 }
 let hasNamespace = false;
 function ensureUploadServiceNamespace() {
     if (!hasNamespace) {
-        net.gotev.uploadservice.UploadService.NAMESPACE = Application.android.packageName;
+        net.gotev.uploadservice.UploadServiceConfig.initialize(Utils.android.getApplicationContext(), 'NativescriptUploadServiceChannel', net.gotev.uploadservice.BuildConfig.DEBUG)
         hasNamespace = true;
     }
 }
@@ -178,12 +176,9 @@ class Task extends ObservableBase {
         ensureReceiver();
         const taskId = session.id + "{" + ++Task.taskCount + "}";
         const request = getBinaryRequest(taskId, options, file);
-
-        const task = Task.initTask(taskId, session, options);
-        request.startUpload();
-
-        Task.cache[task._id] = task;
-
+        let uploadId = request.startUpload();
+        const task = Task.initTask(uploadId, session, options);
+        Task.cache[uploadId] = task;
         return task;
     }
 
@@ -192,10 +187,9 @@ class Task extends ObservableBase {
         ensureReceiver();
         const taskId = session.id + "{" + ++Task.taskCount + "}";
         const request = getMultipartRequest(taskId, options, params);
-        const task = Task.initTask(taskId, session, options);
-
-        request.startUpload();
-        Task.cache[task._id] = task;
+        let uploadId = request.startUpload();
+        const task = Task.initTask(uploadId, session, options);
+        Task.cache[uploadId] = task;
         return task;
     }
 
