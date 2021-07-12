@@ -122,9 +122,15 @@ function ensureReceiver() {
     }
 }
 let hasNamespace = false;
+let CHANNEL = "NativescriptUploadServiceChannel"
 function ensureUploadServiceNamespace() {
     if (!hasNamespace) {
-        net.gotev.uploadservice.UploadServiceConfig.initialize(Utils.android.getApplicationContext(), 'NativescriptUploadServiceChannel', net.gotev.uploadservice.BuildConfig.DEBUG)
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            let notificationManager = Application.android.context.getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+            let channel = new android.app.NotificationChannel(CHANNEL, "Upload Service Demo", android.app.NotificationManager.IMPORTANCE_LOW);
+            notificationManager.createNotificationChannel(channel);
+        }
+        net.gotev.uploadservice.UploadServiceConfig.initialize(Utils.android.getApplicationContext(), CHANNEL, net.gotev.uploadservice.BuildConfig.DEBUG)
         hasNamespace = true;
     }
 }
